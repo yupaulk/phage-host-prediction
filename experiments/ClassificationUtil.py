@@ -545,6 +545,101 @@ class ClassificationUtil(object):
 
         with open(f'{constants.TEMP_RESULTS}/prott5_{filename}.pickle', 'wb') as f:
             pickle.dump(results, f)
+     
+    
+    # ==============================================
+    # Additional Experiment: More Evaluation Metrics
+    # ==============================================
+    
+    def classify_more_thresholds(self, plm, save_feature_importance = False, display_feature_importance = False, feature_columns = None):
+        """
+        Trains a random forest model for phage-host interaction prediction and evaluates the model performance
+        
+        Parameters:
+        - plm: Protein language model used to generate the embeddings
+        - save_feature_importance: True if the components with the highest Gini importance are to be saved in a Pickle file;
+                                   False, otherwise
+        - display_feature_importance: True if the components with the highest Gini importance are to be displayed;
+                                      False, otherwise
+        - feature_columns: List of the column headers corresponding to the features
+        
+        Returns:
+        - If display_feature_importance is set to True, the features with the highest Gini importance are returned
+        - Otherwise, the function returns None
+        """
+        constants = ConstantsUtil()
+
+        # Load data
+        rbp_embeddings = pd.read_csv(f'{constants.INPHARED}/{constants.DATA}/{constants.PLM_EMBEDDINGS_CSV[plm]}', 
+                                     low_memory = False)
+        rbp_embeddings['Modification Date'] = pd.to_datetime(rbp_embeddings['Modification Date'])
+
+        # Get only the top 25% hosts
+        all_counts = rbp_embeddings['Host'].value_counts()
+        TOP_X_PERCENT = 0.25
+        top_x = math.floor(all_counts.shape[0] * TOP_X_PERCENT)
+
+        top_genus = set()
+        genus_counts = all_counts.index
+        for entry in genus_counts[:top_x]:
+            top_genus.add(entry)
+
+        # Construct the training and test sets
+        print("Constructing training and test sets...")
+
+        rbp_embeddings_top = rbp_embeddings[rbp_embeddings['Host'].isin(top_genus)]
+
+        counts = X_train = X_test = y_train = y_test = None
+        if feature_columns is None:
+            counts, X_train, X_test, y_train, y_test = self.random_train_test_split(rbp_embeddings_top, 'Host',
+                                                                                    embeddings_size = rbp_embeddings.shape[1] - constants.INPHARED_EXTRA_COLS)
+        else:
+            counts, X_train, X_test, y_train, y_test = self.random_train_test_split(rbp_embeddings_top, 'Host',
+                                                                                    feature_columns = feature_columns)
+
+        counts_df = pd.DataFrame(counts, columns = ['Genus', f'Train', f'Test', 'Total'])
+
+        unknown_hosts_X = unknown_hosts_y = None
+        if feature_columns is None:
+            unknown_hosts_X, unknown_hosts_y = self.get_unknown_hosts(rbp_embeddings[~rbp_embeddings['Host'].isin(top_genus)], 'Host',
+                                                                      embeddings_size = rbp_embeddings.shape[1] - constants.INPHARED_EXTRA_COLS)
+        else:
+            unknown_hosts_X, unknown_hosts_y = self.get_unknown_hosts(rbp_embeddings[~rbp_embeddings['Host'].isin(top_genus)], 'Host',
+                                                                      feature_columns = feature_columns)
+
+        X_test = X_test.append(unknown_hosts_X)
+        y_test = y_test.append(unknown_hosts_y)
+
+        # Construct the model
+        print("Training the model...")
+
+        clf = RandomForestClassifier(random_state = self.RANDOM_NUM, class_weight = 'balanced',
+                                     max_features = 'sqrt',
+                                     min_samples_leaf = 1,
+                                     min_samples_split = 2,
+                                     n_estimators = 150,
+                                     n_jobs = -1)
+
+        clf.fit(X_train, y_train.values.ravel())
+        y_pred = clf.predict(X_test)
+        proba = clf.predict_proba(X_test)
+
+        # Save the results
+        print("Saving evaluation results...")
+
+        results = []
+        for threshold in range(0, 101, 1):
+            results.append(self.predict_with_threshold(proba, y_test, y_pred, unknown_threshold = threshold / 100))
+
+        if not os.path.exists(constants.TEMP_RESULTS):
+            os.makedirs(constants.TEMP_RESULTS)
+
+        with open(f'{constants.PLM_RESULTS_MORE_THRESHOLDS[plm]}', 'wb') as f:
+            pickle.dump(results, f)
+
+        # Display progress
+        print("Finished")
+        print("==============")
             
     # ============================================
     # Additional Experiment: Prediction via BLASTp
