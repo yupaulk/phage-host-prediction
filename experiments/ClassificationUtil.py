@@ -682,7 +682,7 @@ class ClassificationUtil(object):
                                        out = f'{constants.TEMP_RESULTS_BLAST}/{index}.xml')
         stdout, stderr = blastp()
         
-    def iterate_blastp_results(self, filename, e_cutoff = 0.01):
+    def iterate_blastp_results(self, filename, e_cutoff = 0.01, similarity_threshold = 0):
         constants = ConstantsUtil()
         
         hosts = []
@@ -695,8 +695,12 @@ class ClassificationUtil(object):
             while True:
                 try:
                     evalue = blast_record.descriptions[idx].e
+                    identity = blast_record.alignments[idx].hsps[0].identities
+                    length = blast_record.alignments[idx].hsps[0].align_length
                     
-                    if evalue <= e_cutoff:
+                    similarity = identity / length
+                    
+                    if evalue <= e_cutoff and similarity >= similarity_threshold:
                         score = blast_record.descriptions[idx].score
                         host = blast_record.descriptions[idx].title.split(' ')[2]
                         
@@ -713,6 +717,43 @@ class ClassificationUtil(object):
                     
         return hosts, scores, evalues
     
+    def get_train_test_sets(self):
+        constants = ConstantsUtil()
+        plm = 'PROTT5'
+
+        # Load data
+        rbp_embeddings = pd.read_csv(f'{constants.INPHARED}/{constants.DATA}/{constants.PLM_EMBEDDINGS_CSV[plm]}', 
+                                     low_memory = False)
+        rbp_embeddings['Modification Date'] = pd.to_datetime(rbp_embeddings['Modification Date'])
+
+        # Get only the top 25% hosts
+        all_counts = rbp_embeddings['Host'].value_counts()
+        TOP_X_PERCENT = 0.25
+        top_x = math.floor(all_counts.shape[0] * TOP_X_PERCENT)
+
+        top_genus = set()
+        genus_counts = all_counts.index
+        for entry in genus_counts[:top_x]:
+            top_genus.add(entry)
+
+        # Construct the training and test sets
+        print("Constructing training and test sets...")
+
+        rbp_embeddings_top = rbp_embeddings[rbp_embeddings['Host'].isin(top_genus)]
+
+        counts, X_train, X_test, y_train, y_test = self.random_train_test_split(rbp_embeddings_top, 'Host',
+                                                                                embeddings_size = rbp_embeddings.shape[1] - constants.INPHARED_EXTRA_COLS)
+
+        counts_df = pd.DataFrame(counts, columns = ['Genus', f'Train', f'Test', 'Total'])
+
+        unknown_hosts_X, unknown_hosts_y = self.get_unknown_hosts(rbp_embeddings[~rbp_embeddings['Host'].isin(top_genus)], 'Host',
+                                                                  embeddings_size = rbp_embeddings.shape[1] - constants.INPHARED_EXTRA_COLS)
+
+        X_test = X_test.append(unknown_hosts_X)
+        y_test = y_test.append(unknown_hosts_y)
+        
+        return X_train, y_train, X_test, y_test
+
     def get_mapping_probability(self, scores, hosts, scaling_factor = 0.267):
         from decimal import Decimal, getcontext
         getcontext().prec = 100
