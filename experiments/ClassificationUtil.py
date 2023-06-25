@@ -15,6 +15,7 @@ import numpy as np
 
 from ete3 import NCBITaxa
 from Bio import SeqIO
+from Bio.Blast import NCBIXML
 from Bio.Blast.Applications import NcbiblastpCommandline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, precision_recall_fscore_support
@@ -23,6 +24,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.fixes import loguniform
 from scipy.stats import randint
 from joblib import dump
+from collections import defaultdict
 
 from RBPPredictionUtil import RBPPredictionUtil
 from ConstantsUtil import ConstantsUtil
@@ -679,3 +681,48 @@ class ClassificationUtil(object):
                                        outfmt = 5, 
                                        out = f'{constants.TEMP_RESULTS_BLAST}/{index}.xml')
         stdout, stderr = blastp()
+        
+    def iterate_blastp_results(self, filename, e_cutoff = 0.01):
+        constants = ConstantsUtil()
+        
+        hosts = []
+        scores = []
+        evalues = []
+        with open(filename) as results:
+            blast_record = NCBIXML.read(results)
+            
+            idx = 0
+            while True:
+                try:
+                    evalue = blast_record.descriptions[idx].e
+                    
+                    if evalue <= e_cutoff:
+                        score = blast_record.descriptions[idx].score
+                        host = blast_record.descriptions[idx].title.split(' ')[2]
+                        
+                        evalues.append(evalue)
+                        scores.append(score)
+                        hosts.append(host)
+                        
+                    else:
+                        break
+                    
+                    idx += 1
+                except IndexError:
+                    break
+                    
+        return hosts, scores, evalues
+    
+    def get_mapping_probability(self, scores, hosts, scaling_factor = 0.267):
+        from decimal import Decimal, getcontext
+        getcontext().prec = 100
+
+        denominator = Decimal(0)
+        for value in scores:
+            denominator += Decimal(value / scaling_factor).exp()
+            
+        host_proba = defaultdict(lambda: Decimal(0))
+        for value, host in zip(scores, hosts):            
+            host_proba[host] += Decimal(value / scaling_factor).exp() / denominator
+        
+        return host_proba
