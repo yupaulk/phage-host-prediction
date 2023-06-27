@@ -14,9 +14,10 @@ import pandas as pd
 import numpy as np
 
 from ete3 import NCBITaxa
-from Bio import SeqIO
+from Bio import SeqIO, Align
 from Bio.Blast import NCBIXML
 from Bio.Blast.Applications import NcbiblastpCommandline
+from Bio.Align import substitution_matrices
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, precision_recall_fscore_support
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
@@ -28,6 +29,7 @@ from collections import defaultdict
 
 from RBPPredictionUtil import RBPPredictionUtil
 from ConstantsUtil import ConstantsUtil
+from SequenceParsingUtil import SequenceParsingUtil
 
 class ClassificationUtil(object):
     def __init__(self, complete_embeddings_dir = None, RANDOM_NUM = 42):
@@ -723,10 +725,12 @@ class ClassificationUtil(object):
         return fasta_entry
     
     def construct_fasta_file(self, indices, rbp_embeddings, filename):
+        from tqdm import tqdm
+        
         constants = ConstantsUtil()
  
         fasta_str = ''
-        for index in indices:
+        for index in tqdm(indices):
             fasta_str += self.__construct_fasta_entry(index, rbp_embeddings)
                   
         if not os.path.exists(constants.TEMP_FASTA_BLAST):
@@ -820,7 +824,7 @@ class ClassificationUtil(object):
         X_test = X_test.append(unknown_hosts_X)
         y_test = y_test.append(unknown_hosts_y)
         
-        return X_train, y_train, X_test, y_test
+        return X_train, y_train, X_test, y_test, rbp_embeddings
 
     def get_mapping_probability(self, scores, hosts, scaling_factor = 0.267):
         from decimal import Decimal, getcontext
@@ -835,3 +839,59 @@ class ClassificationUtil(object):
             host_proba[host] += Decimal(value / scaling_factor).exp() / denominator
         
         return host_proba
+    
+    def __get_seq_in_fasta(self, protein_id, fasta):
+        """
+        Gets the sequence associated with a given protein ID
+        
+        Parameters:
+        - protein_id: Protein ID
+        - fasta: File path of the FASTA file with the protein sequences
+        
+        Returns:
+        - Sequence associated with the protein ID
+        """
+        for record in SeqIO.parse(fasta, 'fasta'):
+            record_id = record.description.split(' ')[1]
+            host_id = record.description.split(' ')[2]
+            
+            if record_id == protein_id:
+                return str(record.seq), host_id
+            
+        return None, None
+    
+    def __get_all_seqs_in_fasta_with_host(self, fasta, host):
+        seqs = []
+        for record in SeqIO.parse(fasta, 'fasta'):
+            host_id = record.description.split(' ')[2]
+            
+            if host_id == host:
+                seqs.append(str(record.seq))
+            
+        return seqs
+    
+    def __count_num_matches(self, alignment):
+        return alignment.count('|')
+    
+    def __get_seq_similarity(self, sequence1, sequence2, alignment):
+        return self.__count_num_matches(alignment) / min(len(sequence1), len(sequence2))
+    
+    def compare_seq_similarity(self, sequence, train_set):
+        constants = ConstantsUtil()
+        sequence = str(sequence)
+        
+        sequence, host = self.__get_seq_in_fasta(sequence, f'{constants.TEMP_FASTA_BLAST}/{sequence}.fasta')
+        train_sequences = self.__get_all_seqs_in_fasta_with_host(f'{constants.TEMP_FASTA_BLAST}/{train_set}.fasta', host)
+        
+        seq_similarities = []
+        for train_sequence in train_sequences:            
+            aligner = Align.PairwiseAligner()
+            aligner.open_gap_score = -10
+            aligner.extend_gap_score = -1
+            aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+            alignment = aligner.align(sequence, train_sequence)[0]
+            
+            seq_similarity = self.__get_seq_similarity(sequence, train_sequence, str(alignment))
+            seq_similarities.append(seq_similarity)
+            
+        return max(seq_similarities)
