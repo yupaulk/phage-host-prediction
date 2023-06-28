@@ -118,15 +118,6 @@ class ConstantsUtil(object):
                    'SEQVEC': f'{TEMP_RESULTS}/seqvec.pickle',
                    'BOECKAERTS': f'{TEMP_RESULTS}/boeckaerts.pickle'}
     
-    PLM_RESULTS_MORE_THRESHOLDS = {'PROTTRANSBERT': f'{TEMP_RESULTS}/prottransbert_more_thresholds.pickle', 
-                                   'PROTXLNET': f'{TEMP_RESULTS}/protxlnet_more_thresholds.pickle',
-                                   'PROTTRANSALBERT': f'{TEMP_RESULTS}/prottransalbert_more_thresholds.pickle',
-                                   'PROTT5': f'{TEMP_RESULTS}/prott5_more_thresholds.pickle', 
-                                   'ESM': f'{TEMP_RESULTS}/esm_more_thresholds.pickle', 
-                                   'ESM1B': f'{TEMP_RESULTS}/esm1b_more_thresholds.pickle', 
-                                   'SEQVEC': f'{TEMP_RESULTS}/seqvec_more_thresholds.pickle',
-                                   'BOECKAERTS': f'{TEMP_RESULTS}/boeckaerts_more_thresholds.pickle'}
-    
     FEATURE_IMPORTANCE = f'{TEMP}/feature_importance.pickle'
     
     COMPLETE_EMBEDDINGS = f"{INPHARED}/{PLM['PROTTRANSBERT']}/{COMPLETE}/{MASTER}"
@@ -145,12 +136,6 @@ class ConstantsUtil(object):
     # RBP Prediction
     # ==============
     XGB_RBP_PREDICTION = 'rbp_prediction/RBPdetect_xgb_model.json'
-    
-    # =====
-    # BLAST
-    # =====
-    TEMP_FASTA_BLAST = f'{TEMP}/blast'
-    TEMP_RESULTS_BLAST = f'{TEMP_RESULTS}/blast'
     
     def __init__(self, date = ''):
         """
